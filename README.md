@@ -15,7 +15,16 @@ Photographs are processed locally in your browser and are never uploaded. The Op
 
 ## DJI video to geotagged stills
 
-Open **DJI video to geotagged stills**, choose one MP4/MOV and its matching `.SRT`, then choose a frame interval and clip start/end. Click **Extract geotagged stills**. Completed extraction replaces the current survey; you can use the existing map, polygon/rectangle selection, filters, ZIP and folder export on the resulting JPEGs. Cancellation preserves the previous survey.
+Open **DJI video to geotagged stills** and choose an input tab:
+
+- **Single file:** select one MP4/MOV and its matching `.SRT`.
+- **Folder:** select a folder containing matching video/SRT pairs, such as `DJI_0001.MP4` and `DJI_0001.SRT`. Subfolders are included. Every video must have exactly one matching SRT; missing or ambiguous pairs are reported before processing. Clips are ordered naturally by filename (2 before 10), and the displayed manifest shows their combined timeline.
+
+Choose a frame interval and timeline start/end, then click **Extract geotagged stills**. Folder mode processes the clips end to end as one survey, without creating a merged MP4 or inserting recording gaps. The interval applies across the whole timeline. Each frame uses only its own clip’s telemetry. Normal DJI SRTs restart at zero per clip; select the alternative clock mode only if the SRT timestamps already follow a continuous timeline. **Download combined SRT** exports telemetry retimed to that timeline.
+
+After extraction, click **Select all filtered stills and download ZIP**, or select an area on the map and use the sidebar export. A **Save ZIP** link remains visible if the automatic download does not start. Your browser chooses where to save the ZIP. Extracted frames stay in browser memory until exported; refreshing clears them.
+
+ Completed extraction replaces the current survey; you can use the existing map, polygon/rectangle selection, filters, ZIP and folder export on the resulting JPEGs. Cancellation preserves the previous survey.
 
 - Frames retain the decoded video dimensions and are re-encoded as JPEGs at the chosen quality. GPS latitude/longitude and available absolute altitude are embedded in EXIF; relative height and gimbal pitch/yaw/roll are embedded in DJI-style XMP. Source clip/SRT, timing, and assumptions are recorded in FlightFrame XMP and the metadata CSV. Video source files remain unchanged.
 - Missing gimbal pitch **defaults to assumed −90° (straight down)**. This fallback is labelled as user supplied and never overrides a pitch actually recorded in the SRT. Clear the fallback field to leave an unknown pitch unset. Aircraft pitch is not substituted for gimbal pitch.
@@ -23,7 +32,7 @@ Open **DJI video to geotagged stills**, choose one MP4/MOV and its matching `.SR
 - Modern bracketed DJI telemetry and older `GPS(a,b,alt)` / `G.PRY(p,r,y)` formats are supported. Legacy tuple order is selectable; bracketed latitude/longitude are explicit. No flight-log CSV, embedded MP4 telemetry-track extraction, GPX import, or interpolation is performed.
 - Default matching requires the frame time to fall inside a valid GPS cue. Advanced settings allow a small gap tolerance and a timing offset: **SRT seconds = video seconds + offset**. Unmatched/duplicate decoded frames are skipped. Decoded frame timestamps are used where the browser supplies them; seek-timeline estimates are labelled. SRT date/time is kept as wall clock without inventing a timezone.
 - Missing/unsupported gimbal angles and missing heights are included automatically after extraction when needed; you can refine the filters afterwards. Relative height and absolute altitude stay distinct, with the SRT altitude datum unverified.
-- Batches are limited to 2,000 stills and 500 MB of generated JPEGs, and SRT input is limited to 100 MB. Use shorter clip ranges or larger intervals for long/high-resolution videos. H.264 MP4 is the most portable input; H.265/HEVC depends on your browser/system. The app does not transcode unsupported codecs.
+- Batches are limited to 2,000 stills and 500 MB of generated JPEGs, and each SRT input is limited to 100 MB (200 MB combined). Use shorter clip ranges or larger intervals for long/high-resolution videos. H.264 MP4 is the most portable input; H.265/HEVC depends on your browser/system. The app does not transcode unsupported codecs.
 - ZIP exports containing video stills include `_flightframe-metadata.csv` and an export report. For direct folder export, download the metadata CSV separately.
 
 These are **camera-position geotags**, not ground-pixel georeferencing or orthorectification. The app does not generate world files, footprints, corrected terrain, or an orthomosaic. Extraction intervals do not guarantee adequate overlap, sharpness, camera calibration, or survey accuracy.
@@ -57,4 +66,4 @@ Open http://localhost:7392. After changing dependency versions, run `npm run ven
 
 Tests cover DJI SRT parsing, zero-GPS rejection, missing-angle fallbacks, timestamp matching, frame schedules, generated JPEG EXIF/XMP round trips, and a synthetic JPEG with real GPS/DJI XMP, missing/invalid metadata, angle conventions, concave polygon boundaries/date-line handling, output paths, CSV escaping, and byte-for-byte ZIP round trips. Browser import and ZIP download were also verified with the synthetic photograph. No user photographs are included.
 
-Video validation: 15 automated checks pass. A synthetic H.264 clip and SRT were processed through the browser into three full-resolution JPEGs, downloaded as a ZIP, and independently read with ExifTool to verify GPS, height and camera angles. Test fixtures are synthetic; user telemetry is not included in this repository.
+Video validation: 22 automated checks pass, including folder pairing, natural ordering, combined timestamps, and clip-boundary telemetry isolation. A two-clip folder was processed in the browser into three stills across the clip boundary, including the missing-pitch fallback, and its ZIP downloaded successfully. A synthetic H.264 clip and SRT were processed through the browser into three full-resolution JPEGs, downloaded as a ZIP, and independently read with ExifTool to verify GPS, height and camera angles. Test fixtures are synthetic; user telemetry is not included in this repository.

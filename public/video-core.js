@@ -109,3 +109,62 @@ export function geotagJpeg(jpeg,meta,{width,height,...provenance}){
   const clean=removeOldMetadata(jpeg);
   return join([clean.slice(0,2),app1(buildExif(meta,width,height)),app1(buildXmp(meta,provenance)),clean.slice(2)]);
 }
+
+// Folder inputs are paired within their relative directory. Never borrow telemetry
+// from another clip when the matching SRT is missing or ambiguous.
+export function videoInputPath(file){return String(file.webkitRelativePath||file.name).replaceAll('\\','/');}
+export function pairVideoFiles(files){
+  const videos=new Map(),subtitles=new Map(),errors=[],warnings=[];
+  const key=(path,isSrt)=>path.replace(isSrt?/\.srt$/i:/\.(mp4|mov|m4v)$/i,'').replace(/\.(mp4|mov|m4v)$/i,'').toLowerCase();
+  for(const file of files){
+    const path=videoInputPath(file),isVideo=/\.(mp4|mov|m4v)$/i.test(path),isSrt=/\.srt$/i.test(path);
+    if(!isVideo&&!isSrt)continue;
+    const target=isVideo?videos:subtitles,k=key(path,isSrt);
+    if(!target.has(k))target.set(k,[]);target.get(k).push(file);
+  }
+  const pairs=[];
+  for(const [k,clips]of videos){
+    const srts=subtitles.get(k)||[];
+    if(clips.length!==1){errors.push(`Ambiguous video basename: ${clips.map(videoInputPath).join(', ')}`);continue;}
+    if(srts.length!==1){errors.push(srts.length?`Multiple SRT files match ${videoInputPath(clips[0])}. Keep one matching SRT.`:`Missing matching SRT: ${videoInputPath(clips[0])}`);continue;}
+    pairs.push({clip:clips[0],srt:srts[0],sourcePath:videoInputPath(clips[0]),srtPath:videoInputPath(srts[0])});
+  }
+  for(const [k,srts]of subtitles)if(!videos.has(k))warnings.push(`Unused SRT: ${srts.map(videoInputPath).join(', ')}`);
+  if(!videos.size)errors.push('No MP4, MOV or M4V video clips found in this folder.');
+  const natural=new Intl.Collator('en',{numeric:true,sensitivity:'base'});
+  pairs.sort((a,b)=>natural.compare(a.sourcePath,b.sourcePath)||a.sourcePath.localeCompare(b.sourcePath));
+  return {pairs,errors,warnings};
+}
+export function buildVideoTimeline(clips){
+  let duration=0;
+  const segments=clips.map((clip,index)=>{
+    if(!Number.isFinite(clip.duration)||clip.duration<=0)throw new Error(`Invalid duration for ${clip.sourcePath||'clip '+(index+1)}.`);
+    const segment={...clip,index,timelineStart:duration,timelineEnd:duration+clip.duration};duration=segment.timelineEnd;return segment;
+  });
+  return {segments,duration};
+}
+export function timelinePosition(segments,time){
+  if(!Number.isFinite(time)||time<0)return null;
+  let lo=0,hi=segments.length;
+  while(lo<hi){const mid=(lo+hi)>>1;if(segments[mid].timelineEnd<=time+1e-9)lo=mid+1;else hi=mid;}
+  const segment=segments[lo];
+  return segment&&time>=segment.timelineStart-1e-9&&time<segment.timelineEnd-1e-9?{segment,localTime:Math.max(0,time-segment.timelineStart)}:null;
+}
+export function telemetryTime(segment,localTime,offset=0,clock='per-clip'){
+  return localTime+offset+(clock==='continuous'?segment.timelineStart:0);
+}
+export function mergedTelemetry(segments,clock='per-clip',offset=0){
+  return segments.flatMap(segment=>segment.telemetry.records.map(record=>{
+    const shift=(clock==='continuous'?0:segment.timelineStart)-offset;
+    return {...record,start:record.start+shift,end:record.end+shift,sourceVideo:segment.sourcePath,sourceSRT:segment.srtPath};
+  }).filter(r=>r.end>segment.timelineStart&&r.start<segment.timelineEnd)
+    .map(r=>({...r,start:Math.max(r.start,segment.timelineStart),end:Math.min(r.end,segment.timelineEnd)})))
+    .sort((a,b)=>a.start-b.start);
+}
+export function telemetrySrt(records){
+  const stamp=t=>{const n=Math.round(Math.max(0,t)*1000);return `${String(Math.floor(n/3600000)).padStart(2,'0')}:${String(Math.floor(n/60000)%60).padStart(2,'0')}:${String(Math.floor(n/1000)%60).padStart(2,'0')},${String(n%1000).padStart(3,'0')}`;};
+  return records.map((r,i)=>{
+    const tags=[['latitude',r.latitude],['longitude',r.longitude],['rel_alt',r.relativeHeight],['abs_alt',r.absoluteAltitude],['gb_pitch',r.pitch],['gb_yaw',r.yaw],['gb_roll',r.roll]].filter(([,v])=>v!==null&&v!==undefined).map(([k,v])=>`[${k}: ${v}]`).join(' ');
+    return `${i+1}\n${stamp(r.start)} --> ${stamp(r.end)}\n${r.dateTime?r.dateTime.replace(/^(\d{4}):(\d{2}):(\d{2})/,'$1-$2-$3')+'\n':''}${tags}\n`;
+  }).join('\n');
+}
