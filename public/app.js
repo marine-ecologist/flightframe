@@ -1,3 +1,4 @@
+import {initVideoTools} from './video-ui.js';
 import {normalizeMetadata,gimbalAngle,inRange,insidePolygon,uniquePath,csv} from './core.js';
 const $=id=>document.getElementById(id),fmt=v=>v===null?'—':Number(v).toFixed(2).replace(/\.00$/,'');
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
@@ -8,9 +9,9 @@ map.addControl(new L.Control.Draw({draw:{polyline:false,circle:false,marker:fals
 let photos=[],filtered=[],selected=[],mode='none',ring=null,busy=false,lastReport=[];
 const supported=/\.(jpe?g|tiff?|dng|heic|heif|png|avif|webp|arw|cr2|cr3|nef|orf|rw2|raf)$/i;
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
-function setBusy(value){busy=value;document.querySelectorAll('button,input,select').forEach(el=>el.disabled=value);$('progress').hidden=!value;if(!value)render();}
+function setBusy(value){busy=value;document.querySelectorAll('button,input,select').forEach(el=>el.disabled=value);$('progress').hidden=!value;if(!value){render();document.dispatchEvent(new Event('flightframe:idle'));}}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
-function reportRows(data){return data.map(p=>({path:p.path,latitude:p.latitude,longitude:p.longitude,gps_valid:p.gpsValid,relative_height_m:p.relativeHeight,relative_height_tag:p.relativeTag,absolute_altitude_m:p.absoluteAltitude,absolute_altitude_tag:p.absoluteTag,gimbal_angle_deg:gimbalAngle(p.pitch,$('convention').value),raw_camera_pitch_deg:p.pitch,pitch_tag:p.pitchTag,yaw_deg:p.yaw,roll_deg:p.roll,gps_tags:p.gpsTags,status:p.issues,selected:selected.includes(p)}));}
+function reportRows(data){return data.map(p=>({path:p.path,latitude:p.latitude,longitude:p.longitude,gps_valid:p.gpsValid,relative_height_m:p.relativeHeight,relative_height_tag:p.relativeTag,absolute_altitude_m:p.absoluteAltitude,absolute_altitude_tag:p.absoluteTag,gimbal_angle_deg:gimbalAngle(p.pitch,$('convention').value),raw_camera_pitch_deg:p.pitch,pitch_tag:p.pitchTag,yaw_deg:p.yaw,roll_deg:p.roll,gps_tags:p.gpsTags,status:p.issues,source_video:p.videoSource??'',video_seconds:p.videoSeconds??'',requested_video_seconds:p.requestedVideoSeconds??'',frame_timing:p.frameTiming??'',source_srt:p.srtSource??'',srt_seconds:p.srtSeconds??'',srt_cue_seconds:p.srtCueSeconds??'',srt_offset_seconds:p.srtOffsetSeconds??'',telemetry_gap_seconds:p.telemetryGapSeconds??'',selected:selected.includes(p)}));}
 function extent(){const values=photos.map(p=>p[$('heightBasis').value]).filter(v=>v!==null);$('heightMin').value=values.length?Math.floor(values.reduce((a,b)=>Math.min(a,b),Infinity)):0;$('heightMax').value=values.length?Math.ceil(values.reduce((a,b)=>Math.max(a,b),-Infinity)):150;}
 function reset(){extent();$('angleMin').value=0;$('angleMax').value=90;$('missingHeight').checked=false;$('missingAngle').checked=false;render();}
 function fit(){if(!filtered.length)return;const bounds=L.latLngBounds(filtered.map(p=>[p.latitude,p.longitude<0 && filtered.some(q=>q.longitude>170)?p.longitude+360:p.longitude]));map.fitBounds(bounds.pad(.1),{maxZoom:19});}
@@ -71,7 +72,7 @@ async function exportZip(){
   const snapshot=[...selected],size=snapshot.reduce((n,p)=>n+p.file.size,0);
   if(snapshot.length>=65535 || snapshot.some(p=>p.file.size>=0xffffffff)){status('This selection exceeds the ZIP format limits used here. Export to a folder or use smaller batches.',true);return;}
   if(size>750*1024*1024){status('Selection exceeds the 750 MB in-memory ZIP limit. Use folder export in Chrome/Edge, or export smaller selections.',true);return;}
-  setBusy(true);lastReport=[];const chunks=[],used=new Set(['_drone-export-report.csv']);let zipError=null;
+  setBusy(true);lastReport=[];const chunks=[],used=new Set(['_drone-export-report.csv','_flightframe-metadata.csv']);let zipError=null;
   try{
     let done;const complete=new Promise(resolve=>done=resolve);
     const archive=new fflate.Zip((err,data,final)=>{if(err)zipError=err;else chunks.push(data);if(final||err)done();});
@@ -79,12 +80,13 @@ async function exportZip(){
       const p=snapshot[i],path=uniquePath(p.path,used),entry=new fflate.ZipPassThrough(path);
       archive.add(entry);const reader=p.file.stream().getReader();
       try{while(true){const chunk=await reader.read();if(chunk.done)break;entry.push(chunk.value,false);if(zipError)throw zipError;}entry.push(new Uint8Array(0),true);}finally{reader.releaseLock();}
-      lastReport.push({source:p.path,destination:path,status:'archived',bytes:p.file.size,message:'Original bytes added to ZIP'});
+      lastReport.push({source:p.path,destination:path,status:'archived',bytes:p.file.size,message:'Image file added unchanged to ZIP'});
       $('progress').value=(i+1)/snapshot.length;status(`Preparing ZIP · ${i+1} / ${snapshot.length}`);await tick();
     }
+    if(snapshot.some(p=>p.videoSource)){const metadata=new fflate.ZipPassThrough('_flightframe-metadata.csv');archive.add(metadata);metadata.push(fflate.strToU8(csv(reportRows(snapshot))),true);}
     const manifest=new fflate.ZipPassThrough('_drone-export-report.csv');archive.add(manifest);manifest.push(fflate.strToU8(csv(lastReport)),true);archive.end();await complete;if(zipError)throw zipError;
     download(new Blob(chunks,{type:'application/zip'}),'flightframe-selected-photos.zip');
-    status(`ZIP ready: ${snapshot.length} original photographs plus export report. Check your browser’s downloads.`);
+    status(`ZIP ready: ${snapshot.length} ${snapshot.some(p=>p.videoSource)?'extracted JPEGs':'original photographs'} plus export report. Check your browser’s downloads.`);
   }catch(e){status(`ZIP failed: ${e.message}. Use folder export or a smaller selection.`,true);lastReport=[];}finally{setBusy(false);}
 }
 $('zip').onclick=exportZip;
@@ -109,3 +111,5 @@ $('copy').onclick=async()=>{
   }finally{setBusy(false);}
 };
 render();
+
+initVideoTools({setBusy,isBusy:()=>busy,status,onFrames:frames=>{photos=frames;mode='none';ring=null;shapes.clearLayers();lastReport=[];reset();$('missingAngle').checked=frames.some(p=>p.pitch===null);$('missingHeight').checked=frames.some(p=>p[$('heightBasis').value]===null);render();fit();}});
