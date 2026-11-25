@@ -45,10 +45,9 @@ export function matchTelemetry(records,time,maxGap=1){
   if(!record||!record.gpsValid||gap(record)>maxGap)return null;
   return {record,gapSeconds:gap(record),sampleDeltaSeconds:time-record.start};
 }
-export function extractionTimes({start,end,interval,duration,limit=2000}){
-  if(![start,end,interval,duration].every(Number.isFinite)||start<0||end<=start||end>duration+1e-6||interval<0.2)throw new Error('Use a valid clip range and an interval of at least 0.2 seconds.');
+export function extractionTimes({start,end,interval,duration}){
+  if(![start,end,interval,duration].every(Number.isFinite)||start<0||end<=start||end>duration+1e-6||interval<=0)throw new Error('Use a valid clip range and a positive interval.');
   const count=Math.ceil((end-start)/interval-1e-9);
-  if(count>limit)throw new Error(`This range produces ${count} frames. Use a larger interval or shorter range (maximum ${limit} frames per batch).`);
   return Array.from({length:count},(_,i)=>start+i*interval).filter(t=>t<end-1e-7&&t<duration);
 }
 export function frameMetadata(record,{pitchOverride=null}={}){

@@ -80,14 +80,11 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
       if(!clip||!srt){notice('Choose a DJI video and its matching SRT telemetry file.');return;}
       pairs=[{clip,srt,sourcePath:videoInputPath(clip),srtPath:videoInputPath(srt)}];batchStem=safePath(clip.name.replace(/\.[^.]+$/,''));
     }
-    if(pairs.some(p=>p.srt.size>100*1024*1024)){notice('An SRT exceeds the 100 MB browser limit. Use a shorter clip/telemetry segment.',true);return;}
     preparing=true;setBusy(true);refresh();
     try{
-      const clips=[];let totalSrtBytes=0;
+      const clips=[];
       for(let i=0;i<pairs.length;i++){
         const pair=pairs[i];notice(`Preparing clip ${i+1} / ${pairs.length}: ${pair.sourcePath}`);
-        totalSrtBytes+=pair.srt.size;
-        if(totalSrtBytes>200*1024*1024)throw new Error('Combined SRT files exceed the 200 MB browser limit. Choose a smaller batch.');
         const segment={...pair,index:i};await openSegment(segment);
         const telemetry=parseDJISrt(await pair.srt.text(),{legacyOrder:$('legacyOrder').value});
         if(!telemetry.records.length)throw new Error(`${pair.srtPath}: no valid SRT cue timestamps found.`);
@@ -145,7 +142,7 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
     }catch(e){notice(e.message,true);return;}
     setBusy(true);extracting=true;cancelled=false;refresh();video.pause();video.controls=false;
     const canvas=document.createElement('canvas'),context=canvas.getContext('2d'),frames=[];
-    let totalBytes=0,skipped=0,lastDecoded=-Infinity,lastSegment=-1;
+    let skipped=0,lastDecoded=-Infinity,lastSegment=-1;
     try{
       if(!context)throw new Error('Canvas is unavailable in this browser.');
       for(let i=0;i<times.length;i++){
@@ -165,7 +162,6 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
         const tagged=geotagJpeg(new Uint8Array(await raw.arrayBuffer()),meta,{width:canvas.width,height:canvas.height,
           SourceVideo:segment.sourcePath,SourceSRT:segment.srtPath,VideoSeconds:seconds(frame.time),RequestedVideoSeconds:seconds(localTime),TimelineSeconds:seconds(combinedTime),RequestedTimelineSeconds:seconds(times[i]),ClipIndex:segment.index+1,FrameTiming:frame.timing,
           SRTSeconds:seconds(srtTime),SRTCueSeconds:seconds(meta.start),TelemetryGapSeconds:seconds(match.gapSeconds),SRTOffsetSeconds:config.offset,SRTClock:config.clock});
-        totalBytes+=tagged.length;if(totalBytes>500*1024*1024)throw new Error('Generated JPEGs exceed the 500 MB batch limit. Use a shorter timeline range or larger interval. Your previous survey is unchanged.');
         const clipStem=safePath(segment.clip.name.replace(/\.[^.]+$/,'')),name=`frame_${String(i+1).padStart(6,'0')}_${Math.round(combinedTime*1000)}ms_${clipStem}.jpg`;
         const file=new File([tagged],name,{type:'image/jpeg'});
         const data={latitude:meta.latitude,longitude:meta.longitude,RelativeAltitude:meta.relativeHeight,AbsoluteAltitude:meta.absoluteAltitude,GimbalPitchDegree:meta.pitch,GimbalYawDegree:meta.yaw,GimbalRollDegree:meta.roll};

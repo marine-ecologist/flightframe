@@ -76,9 +76,8 @@ $('report').onclick=()=>download(new Blob([csv(lastReport)],{type:'text/csv;char
 $('folderSupport').textContent=window.showDirectoryPicker?'Direct folder export is supported in this browser.':'Direct folder export is unavailable here. Use ZIP, or open this page in Chrome / Edge over HTTPS.';
 async function exportZip(){
   if(busy||!selected.length)return;
-  const snapshot=[...selected],size=snapshot.reduce((n,p)=>n+p.file.size,0);
+  const snapshot=[...selected];
   if(snapshot.length>=65535 || snapshot.some(p=>p.file.size>=0xffffffff)){status('This selection exceeds the ZIP format limits used here. Export to a folder or use smaller batches.',true);return;}
-  if(size>750*1024*1024){status('Selection exceeds the 750 MB in-memory ZIP limit. Use folder export in Chrome/Edge, or export smaller selections.',true);return;}
   setBusy(true);lastReport=[];const chunks=[],used=new Set(['_drone-export-report.csv','_flightframe-metadata.csv']);let zipError=null;
   try{
     let done;const complete=new Promise(resolve=>done=resolve);

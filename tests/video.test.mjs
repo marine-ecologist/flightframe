@@ -17,9 +17,9 @@ test('malformed timing, missing GPS and unsupported captions do not invent posit
   const p=parseDJISrt('1\n00:00:00,000 --> 00:00:01,000\n[latitude: 91] [longitude: 2]');assert.equal(p.validCount,0);
   assert.equal(srtSeconds('01:02:03.5'),3723.5);assert.equal(srtSeconds('00:99:00,000'),null);
 });
-test('frame schedule excludes end, respects duration, prevents excessive output',()=>{
+test('frame schedule validates ranges and accepts batches above the former cap',()=>{
   assert.deepEqual(extractionTimes({start:0,end:3,interval:1,duration:3}),[0,1,2]);assert.deepEqual(extractionTimes({start:1,end:2,interval:.4,duration:3}),[1,1.4,1.8]);
-  assert.throws(()=>extractionTimes({start:0,end:10,interval:0,duration:10}));assert.throws(()=>extractionTimes({start:0,end:11,interval:1,duration:10}));assert.throws(()=>extractionTimes({start:0,end:1000,interval:.2,duration:1000}));
+  assert.throws(()=>extractionTimes({start:0,end:10,interval:0,duration:10}));assert.throws(()=>extractionTimes({start:0,end:11,interval:1,duration:10}));const times=extractionTimes({start:0,end:1000,interval:.2,duration:1000});assert.equal(times.length,5000);assert.ok(Math.abs(times.at(-1)-999.8)<1e-9);assert.equal(extractionTimes({start:0,end:1,interval:.1,duration:1}).length,10);
 });
 test('telemetry matching never interpolates across missing GPS or large gaps',()=>{
   const {records}=parseDJISrt(modern);assert.equal(matchTelemetry(records,.5,0).record.start,0);assert.equal(matchTelemetry(records,1,0).record.start,1);
