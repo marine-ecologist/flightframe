@@ -1,11 +1,12 @@
-import {parseDJISrt,matchTelemetry,srtExtractionTimes,frameMetadata,geotagJpeg,pairVideoFiles,buildVideoTimeline,timelinePosition,telemetryTime,mergedTelemetry,telemetrySrt,videoInputPath} from './video-core.js?v=srt2';
+import {readTextFile} from './local-files.js';
+import {parseDJISrt,matchTelemetry,srtExtractionTimes,frameMetadata,geotagJpeg,pairVideoFiles,buildVideoTimeline,timelinePosition,telemetryTime,mergedTelemetry,telemetrySrt,videoInputPath} from './video-core.js?v=srt3';
 import {normalizeMetadata,safePath} from './core.js';
 const $=id=>document.getElementById(id);
 const seconds=n=>Number(n).toFixed(3);
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function readLocalFile(file,operation){
   try{return await operation();}
-  catch(error){throw new Error(`Cannot read ${videoInputPath(file)}: ${error.message}. Ensure the file is fully downloaded and accessible locally (not an unavailable cloud placeholder or disconnected drive), then select the folder again. If it still fails, try the matching pair in Single file mode.`);}
+  catch(error){throw new Error(`Cannot read ${videoInputPath(file)}: ${error.message}. The browser could not access this file. Copy the matching video and SRT to a folder on your computer (for example Downloads), then select that folder again. Keep the source drive connected and ensure cloud files are downloaded. If it still fails, try the matching pair in Single file mode.`);}
 }
 function mediaReady(video,file){
   return new Promise((resolve,reject)=>{
@@ -95,7 +96,7 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
       for(let i=0;i<pairs.length;i++){
         const pair=pairs[i];notice(`Preparing clip ${i+1} / ${pairs.length}: ${pair.sourcePath}`);
         const segment={...pair,index:i};await openSegment(segment);
-        const telemetry=parseDJISrt(await readLocalFile(pair.srt,()=>pair.srt.text()),{legacyOrder:$('legacyOrder').value});
+        const telemetry=parseDJISrt(await readLocalFile(pair.srt,()=>readTextFile(pair.srt)),{legacyOrder:$('legacyOrder').value});
         if(!telemetry.records.length)throw new Error(`${pair.srtPath}: no valid SRT cue timestamps found.`);
         clips.push({...segment,duration:video.duration,width:video.videoWidth,height:video.videoHeight,telemetry});
         $('progress').value=(i+1)/pairs.length;await wait(0);
