@@ -3,6 +3,10 @@ import {normalizeMetadata,safePath} from './core.js';
 const $=id=>document.getElementById(id);
 const seconds=n=>Number(n).toFixed(3);
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function readLocalFile(file,operation){
+  try{return await operation();}
+  catch(error){throw new Error(`Cannot read ${videoInputPath(file)}: ${error.message}. Ensure the file is fully downloaded and accessible locally (not an unavailable cloud placeholder or disconnected drive), then select the folder again. If it still fails, try the matching pair in Single file mode.`);}
+}
 function mediaReady(video,file){
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>finish(new Error('Video decoder timed out. Try an H.264 MP4, or another supported browser.')),20000);
@@ -48,9 +52,11 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
   async function openSegment(segment){
     if(activeSegment===segment.index&&video.readyState>=2)return;
     video.pause();activeSegment=-1;
+    video.removeAttribute('src');video.load();
     if(videoURL)URL.revokeObjectURL(videoURL);
+    await readLocalFile(segment.clip,()=>segment.clip.slice(0,1).arrayBuffer());
     videoURL=URL.createObjectURL(segment.clip);
-    await mediaReady(video,videoURL);activeSegment=segment.index;
+    try{await mediaReady(video,videoURL);}catch(error){throw new Error(`${segment.sourcePath}: ${error.message}`);}activeSegment=segment.index;
   }
   function manifest(){
     const body=$('videoManifestRows');body.replaceChildren();
@@ -86,7 +92,7 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
       for(let i=0;i<pairs.length;i++){
         const pair=pairs[i];notice(`Preparing clip ${i+1} / ${pairs.length}: ${pair.sourcePath}`);
         const segment={...pair,index:i};await openSegment(segment);
-        const telemetry=parseDJISrt(await pair.srt.text(),{legacyOrder:$('legacyOrder').value});
+        const telemetry=parseDJISrt(await readLocalFile(pair.srt,()=>pair.srt.text()),{legacyOrder:$('legacyOrder').value});
         if(!telemetry.records.length)throw new Error(`${pair.srtPath}: no valid SRT cue timestamps found.`);
         clips.push({...segment,duration:video.duration,width:video.videoWidth,height:video.videoHeight,telemetry});
         $('progress').value=(i+1)/pairs.length;await wait(0);
