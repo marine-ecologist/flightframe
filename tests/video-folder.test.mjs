@@ -43,3 +43,16 @@ test('a clip without valid GPS cannot borrow a preceding clip GPS fix',()=>{
  const p=buildVideoTimeline(c),position=timelinePosition(p.segments,3);assert.equal(matchTelemetry(position.segment.telemetry.records,position.localTime,5),null);
  assert.throws(()=>buildVideoTimeline([{duration:NaN}]));
 });
+
+test('SRT-driven schedule uses cue timestamps, skips gaps, and resets per matched clip',async()=>{
+ const {srtExtractionTimes}=await import('../public/video-core.js');
+ const cue=(start,end,gpsValid=true)=>({start,end,gpsValid});
+ const segments=buildVideoTimeline([
+  {duration:8,telemetry:{records:[cue(1,1.02),cue(2,2.02,false),cue(3.5,3.52),cue(6,6.02)]}},
+  {duration:4,telemetry:{records:[cue(.5,.52),cue(2.5,2.52)]}}
+ ]).segments;
+ const times=srtExtractionTimes(segments,{start:0,end:12,interval:2,duration:12});
+ assert.deepEqual(times.map(t=>Number(t.toFixed(3))),[1.01,3.51,6.01,8.51,10.51]);
+ assert.deepEqual(srtExtractionTimes(segments,{start:7,end:8,interval:2,duration:12}),[]);
+ assert.throws(()=>srtExtractionTimes(segments,{start:0,end:12,interval:0,duration:12}));
+});

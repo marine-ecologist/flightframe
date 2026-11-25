@@ -167,3 +167,27 @@ export function telemetrySrt(records){
     return `${i+1}\n${stamp(r.start)} --> ${stamp(r.end)}\n${r.dateTime?r.dateTime.replace(/^(\d{4}):(\d{2}):(\d{2})/,'$1-$2-$3')+'\n':''}${tags}\n`;
   }).join('\n');
 }
+
+// Sample actual valid SRT cue times, separately for each filename-matched clip.
+// Preserve cue offsets: a first cue at 10 s locates video second 10, not second 0.
+export function srtExtractionTimes(segments,{start,end,interval,duration}){
+  extractionTimesValidation({start,end,interval,duration});
+  const times=[];
+  for(const segment of segments){
+    const lo=Math.max(0,start-segment.timelineStart),hi=Math.min(segment.duration,end-segment.timelineStart);
+    if(hi<=lo)continue;
+    let next=lo;
+    for(const cue of segment.telemetry.records){
+      if(!cue.gpsValid)continue;
+      const a=Math.max(cue.start,lo),b=Math.min(cue.end,hi);
+      if(b<=a||b<=next)continue;
+      const t=Math.max(next,(a+b)/2);
+      if(t<a||t>=b)continue;
+      times.push(segment.timelineStart+t);next=t+interval;
+    }
+  }
+  return times;
+}
+function extractionTimesValidation({start,end,interval,duration}){
+  if(![start,end,interval,duration].every(Number.isFinite)||start<0||end<=start||end>duration+1e-6||interval<=0)throw new Error('Use a valid clip range and a positive interval.');
+}

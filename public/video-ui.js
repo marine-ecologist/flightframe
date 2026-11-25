@@ -1,4 +1,4 @@
-import {parseDJISrt,matchTelemetry,extractionTimes,frameMetadata,geotagJpeg,pairVideoFiles,buildVideoTimeline,timelinePosition,telemetryTime,mergedTelemetry,telemetrySrt,videoInputPath} from './video-core.js';
+import {parseDJISrt,matchTelemetry,srtExtractionTimes,frameMetadata,geotagJpeg,pairVideoFiles,buildVideoTimeline,timelinePosition,telemetryTime,mergedTelemetry,telemetrySrt,videoInputPath} from './video-core.js?v=srt2';
 import {normalizeMetadata,safePath} from './core.js';
 const $=id=>document.getElementById(id);
 const seconds=n=>Number(n).toFixed(3);
@@ -47,7 +47,7 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
   }
   function options(){
     const num=id=>$(id).value.trim()===''?NaN:Number($(id).value);
-    return {start:num('videoStart'),end:num('videoEnd'),interval:num('frameInterval'),duration:plan.duration,offset:num('srtOffset'),maxGap:num('srtGap'),quality:num('jpegQuality')/100,clock:inputMode==='folder'?$('folderSrtClock').value:'per-clip'};
+    return {start:num('videoStart'),end:num('videoEnd'),interval:num('frameInterval'),duration:plan.duration,offset:0,maxGap:num('srtGap'),quality:num('jpegQuality')/100,clock:'per-clip'};
   }
   async function openSegment(segment){
     if(activeSegment===segment.index&&video.readyState>=2)return;
@@ -82,9 +82,12 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
       pairs=matched.pairs;
       batchStem=safePath((files[0].webkitRelativePath||'folder').split('/')[0]);
     }else{
-      const clip=$('videoFile').files[0],srt=$('srtFile').files[0];
-      if(!clip||!srt){notice('Choose a DJI video and its matching SRT telemetry file.');return;}
-      pairs=[{clip,srt,sourcePath:videoInputPath(clip),srtPath:videoInputPath(srt)}];batchStem=safePath(clip.name.replace(/\.[^.]+$/,''));
+      const files=Array.from($('videoPair').files);
+      if(!files.length){notice('Choose the video and its same-named SRT together.');return;}
+      const matched=pairVideoFiles(files);warnings=matched.warnings;
+      if(matched.errors.length){notice(matched.errors.join('\n'),true);return;}
+      if(matched.pairs.length!==1){notice('Single file mode needs exactly one matching video/SRT pair. Use Folder for several clips.',true);return;}
+      pairs=matched.pairs;batchStem=safePath(pairs[0].clip.name.replace(/\.[^.]+$/,''));
     }
     preparing=true;setBusy(true);refresh();
     try{
@@ -103,10 +106,8 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
       $('videoStart').value=0;$('videoEnd').value=String(Number(plan.duration.toFixed(6)));
       const pitchCount=clips.reduce((n,c)=>n+c.telemetry.records.filter(r=>r.gpsValid&&r.pitch!==null).length,0);
       const zeroCount=clips.reduce((n,c)=>n+c.telemetry.zeroCount,0),noGpsClips=clips.filter(c=>!c.telemetry.validCount).length;
-      const sameStem=inputMode==='folder'||pairs[0].clip.name.replace(/\.[^.]+$/,'').toLowerCase()===pairs[0].srt.name.replace(/\.srt$/i,'').replace(/\.(mp4|mov|m4v)$/i,'').toLowerCase();
-      $('pairWarning').hidden=sameStem;$('confirmPair').checked=sameStem;
       await openSegment(plan.segments[0]);
-      notice(`${clips.length} clip(s) ready as one ${seconds(plan.duration)} s timeline. ${validCount} GPS cues; ${pitchCount} with gimbal pitch.${pitchCount?'':' Missing pitch defaults to assumed −90°; clear the fallback to leave it unknown.'}${zeroCount?` ${zeroCount} zero-GPS cues will be skipped.`:''}${noGpsClips?` ${noGpsClips} clip(s) have no usable GPS and will contribute no geotagged frames.`:''}${warnings.length?'\n'+warnings.join('\n'):''}`);
+      notice(`${clips.length} automatically matched clip/SRT pair(s) ready as one ${seconds(plan.duration)} s timeline. Extraction uses each SRT’s elapsed cue times. ${validCount} GPS cues; ${pitchCount} with gimbal pitch.${pitchCount?'':' Missing pitch defaults to assumed −90°; clear the fallback to leave it unknown.'}${zeroCount?` ${zeroCount} zero-GPS cues will be skipped.`:''}${noGpsClips?` ${noGpsClips} clip(s) have no usable GPS and will contribute no geotagged frames.`:''}${warnings.length?'\n'+warnings.join('\n'):''}`);
       prepared=true;
     }catch(e){plan={segments:[],duration:0};manifest();notice(e.message,true);}
     finally{preparing=false;setBusy(false);refresh();}
@@ -123,8 +124,7 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
     $(id).onclick=()=>switchMode(mode);
     $(id).onkeydown=event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?'single':event.key==='End'?'folder':inputMode==='single'?'folder':'single';switchMode(next);$(next==='single'?'singleVideoTab':'folderVideoTab').focus();}};
   }
-  $('videoFile').onchange=prepare;$('srtFile').onchange=prepare;$('videoFolder').onchange=prepare;$('legacyOrder').onchange=prepare;
-  $('folderSrtClock').onchange=()=>{if(prepared)notice('SRT clock changed. Check the combined SRT or use a short timeline range to verify alignment before a full extraction.');};
+  $('videoPair').onchange=prepare;$('videoFolder').onchange=prepare;$('legacyOrder').onchange=prepare;
   $('combinedSrt').onclick=()=>{
     if(isBusy()||!prepared)return;const config=options();
     if(!Number.isFinite(config.offset)){notice('Set a valid SRT time offset before downloading combined telemetry.',true);return;}
@@ -137,11 +137,10 @@ export function initVideoTools({setBusy,isBusy,status,onFrames,download,onExport
     if(isBusy()||!prepared)return;
     let config,times;
     try{
-      config=options();times=extractionTimes(config);
+      config=options();times=srtExtractionTimes(plan.segments,config);
       if(!Number.isFinite(config.offset)||!Number.isFinite(config.maxGap)||config.maxGap<0||config.maxGap>5||!Number.isFinite(config.quality)||config.quality<.5||config.quality>1)throw new Error('Check the timing offset, maximum telemetry gap (0–5 seconds), and JPEG quality (50–100%).');
-      if(!$('confirmPair').checked)throw new Error('The filenames differ. Confirm that this SRT belongs to the chosen video.');
       const hasMatch=times.some(time=>{const position=timelinePosition(plan.segments,time);return position&&matchTelemetry(position.segment.telemetry.records,telemetryTime(position.segment,position.localTime,config.offset,config.clock),config.maxGap);});
-      if(!hasMatch)throw new Error('No GPS telemetry matches this timeline range. Check the range, SRT clock mode and time offset.');
+      if(!hasMatch)throw new Error('No GPS telemetry matches this timeline range. Check that the SRT contains valid GPS cues within its matching video duration and the selected range.');
       const override=$('pitchFallback').value.trim()===''?null:Number($('pitchFallback').value);
       if(override!==null&&(!Number.isFinite(override)||override< -90||override>90))throw new Error('Fallback gimbal pitch must be between −90° and +90°.');
       config.pitchOverride=override;

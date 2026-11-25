@@ -1,5 +1,5 @@
 import {flatFootprint} from './preview-core.js';
-import {initVideoTools} from './video-ui.js';
+import {initVideoTools} from './video-ui.js?v=srt2';
 import {normalizeMetadata,gimbalAngle,inRange,insidePolygon,uniquePath,csv} from './core.js';
 const $=id=>document.getElementById(id),fmt=v=>v===null?'—':Number(v).toFixed(2).replace(/\.00$/,'');
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
