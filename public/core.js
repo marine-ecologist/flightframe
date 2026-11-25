@@ -57,6 +57,7 @@ export function normalizeMetadata(parsed,path,id) {
   const gpsValid=lat.value!==null && lon.value!==null && Math.abs(lat.value)<=90 && Math.abs(lon.value)<=180;
   return {id,path,latitude:lat.value,longitude:lon.value,gpsValid,relativeHeight:relative.value,relativeTag:relative.tag,
     absoluteAltitude:absolute.value,absoluteTag:absolute.tag,pitch:pitch.value,pitchTag:pitch.tag,yaw:yaw.value,roll:roll.value,
+    imageWidth:pick(tags,['ExifImageWidth','PixelXDimension','ImageWidth']).value,imageHeight:pick(tags,['ExifImageHeight','PixelYDimension','ImageHeight']).value,
     gpsTags:[lat.tag,lon.tag].join(' / '),issues:[...(!gpsValid?['Missing/invalid GPS']:[]),...(relative.value===null?['No relative height']:[]),...(pitch.value===null?['No camera pitch']:[])]};
 }
 export function inRange(value,min,max,includeMissing) {

@@ -13,6 +13,12 @@ A browser-based tool to map drone photographs, select images by area, filter by 
 
 Photographs are processed locally in your browser and are never uploaded. The OpenStreetMap basemap requests tiles for the areas you view; switch it off to stop further requests. The tool selects imagery; it does not generate or quality-assure orthomosaics.
 
+## Flat-ground photo preview
+
+Click a map dot to open its photograph, metadata, footprint assumptions, and a link to save the original. Images load only when opened; browser-unsupported formats show an explanation and remain exportable.
+
+Estimated footprint outlines project image corners onto a horizontal plane using camera yaw, pitch, roll, and height above that plane. Set the preview height reference and ground elevation in the same reference, and enter the camera’s horizontal field of view. Defaults are explicitly approximate: 70° horizontal FOV, 4:3 aspect ratio when dimensions are unavailable, north-facing heading when missing, −90° missing pitch, and 0° missing roll. The existing pitch convention controls the pitch interpretation. Missing/nonpositive height or corners at/above the horizon produce no footprint. Footprints follow the filters and selection colors; area selection continues to use camera GPS points. This release displays footprint outlines and popup photos, not warped image textures on the map. Lens distortion, terrain, and refraction are not corrected.
+
 ## DJI video to geotagged stills
 
 Open **DJI video to geotagged stills** and choose an input tab:

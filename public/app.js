@@ -1,9 +1,11 @@
+import {flatFootprint} from './preview-core.js';
 import {initVideoTools} from './video-ui.js';
 import {normalizeMetadata,gimbalAngle,inRange,insidePolygon,uniquePath,csv} from './core.js';
 const $=id=>document.getElementById(id),fmt=v=>v===null?'—':Number(v).toFixed(2).replace(/\.00$/,'');
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 const map=L.map('map',{preferCanvas:true,worldCopyJump:true}).setView([19.32,-81.25],9);
 const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+const footprints=L.layerGroup().addTo(map);
 const points=L.layerGroup().addTo(map),shapes=L.featureGroup().addTo(map);
 map.addControl(new L.Control.Draw({draw:{polyline:false,circle:false,marker:false,circlemarker:false,polygon:{allowIntersection:false,showArea:false},rectangle:{}},edit:{featureGroup:shapes,edit:true,remove:true}}));
 let photos=[],filtered=[],selected=[],mode='none',ring=null,busy=false,lastReport=[],readyZipURL=null;
@@ -31,12 +33,31 @@ function render(){
   $('loaded').textContent=photos.length;$('gps').textContent=photos.filter(p=>p.gpsValid).length;$('filtered').textContent=filtered.length;$('selected').textContent=selected.length;
   $('selectionMode').textContent=mode==='none'?'No selection · draw an area to begin':mode==='all'?'All filtered GPS points selected':'Drawn area ∩ current filters';
   if(!valid) $('selectionMode').textContent='Check ranges: minimum ≤ maximum; gimbal 0–90°';
+  map.closePopup();footprints.clearLayers();let footprintCount=0;
+  const previewConfig={heightBasis:$('previewHeight').value,ground:Number($('previewGround').value),fov:Number($('previewFov').value),aspect:Number($('previewAspect').value),heading:Number($('previewHeading').value),pitchConvention:$('convention').value};
+  const previewValid=['previewGround','previewFov','previewAspect','previewHeading'].every(id=>$(id).value.trim()!=='');
   points.clearLayers();const selectedIds=new Set(selected.map(p=>p.id));
   for(const p of filtered){const chosen=selectedIds.has(p.id),body=document.createElement('div');
     const title=document.createElement('strong');title.textContent=p.path;body.append(title,document.createElement('br'));
     const details=document.createElement('span');details.textContent=`Relative: ${fmt(p.relativeHeight)} m · Absolute: ${fmt(p.absoluteAltitude)} m · Gimbal: ${fmt(gimbalAngle(p.pitch,$('convention').value))}° · Raw pitch: ${fmt(p.pitch)}° (${p.pitchTag||'missing'})`;body.append(details);
-    L.circleMarker([p.latitude,p.longitude],{radius:chosen?7:5,color:chosen?'#df841c':'#277b80',weight:2,fillOpacity:.8}).bindPopup(body).addTo(points);
+    const aspect=p.imageWidth>0&&p.imageHeight>0?p.imageWidth/p.imageHeight:previewConfig.aspect;
+    const footprint=previewValid?flatFootprint(p,{...previewConfig,aspect}):null;
+    if($('showFootprints').checked&&footprint){footprintCount++;L.polygon(footprint.corners,{color:chosen?'#df841c':'#277b80',weight:1,fillOpacity:chosen?.12:.035,interactive:false}).addTo(footprints);}
+    const note=document.createElement('p');note.className='photo-preview-note';note.textContent=footprint?`Estimated footprint · ${fmt(footprint.height)} m above flat ground · heading ${fmt(footprint.heading)}°. Assumptions: ${footprint.assumptions.join(', ')}${p.imageWidth>0&&p.imageHeight>0?'':', fallback aspect ratio'}.`:'Footprint unavailable: check positive height above ground, field of view, dimensions and downward camera angle. All corners must point below the horizon.';body.append(note);
+    const marker=L.circleMarker([p.latitude,p.longitude],{radius:chosen?7:5,color:chosen?'#df841c':'#277b80',weight:2,fillOpacity:.8}).bindPopup(body,{maxWidth:480,minWidth:240,maxHeight:320}).addTo(points);
+    let imageURL=null;
+    marker.on('popupopen',()=>{
+      if(imageURL||!p.file)return;
+      imageURL=URL.createObjectURL(p.file);const img=document.createElement('img');img.className='photo-preview-image';img.alt=p.path;img.src=imageURL;
+      const message=document.createElement('p');message.className='photo-preview-note';message.textContent='Loading photograph…';
+      img.onload=()=>{message.textContent=`${img.naturalWidth} × ${img.naturalHeight} pixels · original image preview`;marker.getPopup().update();};
+      img.onerror=()=>{message.textContent='This browser cannot display this image format. The original can still be exported.';img.hidden=true;marker.getPopup().update();};
+      const link=document.createElement('a');link.href=imageURL;link.download=p.file.name;link.textContent='Save original image';
+      body.append(img,message,link);marker.getPopup().update();
+    });
+    marker.on('popupclose',()=>{if(imageURL){URL.revokeObjectURL(imageURL);imageURL=null;}body.querySelectorAll('img,a,.photo-preview-note').forEach(el=>{if(el!==note)el.remove();});});
   }
+  $('previewStatus').textContent=$('showFootprints').checked?`${footprintCount} estimated footprints / ${filtered.length} filtered points. ${filtered.length-footprintCount} unavailable; check height and preview settings.`:'Footprints hidden. Click any dot to preview its photograph.';
   const inventory=$('onlySelected').checked?selected:photos;
   const body=$('rows');body.replaceChildren();
   for(const p of inventory.slice(0,500)){const row=document.createElement('tr'),chosen=selectedIds.has(p.id);if(chosen)row.className='selected-row';
@@ -67,7 +88,7 @@ $('folder').onchange=e=>load(e.target.files);$('files').onchange=e=>load(e.targe
 map.on(L.Draw.Event.CREATED,e=>{if(busy)return;shapes.clearLayers();shapes.addLayer(e.layer);ring=e.layer.toGeoJSON().geometry.coordinates[0];mode='shape';render();});
 map.on(L.Draw.Event.EDITED,()=>{if(busy)return;const layer=shapes.getLayers()[0];ring=layer?.toGeoJSON().geometry.coordinates[0]||null;mode=ring?'shape':'none';render();});
 map.on(L.Draw.Event.DELETED,()=>{if(busy)return;ring=null;mode='none';render();});
-for(const id of ['heightMin','heightMax','angleMin','angleMax','missingHeight','missingAngle','convention','onlySelected'])$(id).addEventListener('change',render);
+for(const id of ['heightMin','heightMax','angleMin','angleMax','missingHeight','missingAngle','convention','onlySelected','showFootprints','previewHeight','previewGround','previewFov','previewAspect','previewHeading'])$(id).addEventListener('change',render);
 $('heightBasis').onchange=()=>{extent();render();};$('reset').onclick=reset;$('fit').onclick=fit;
 $('all').onclick=()=>{mode='all';ring=null;shapes.clearLayers();render();};$('clear').onclick=()=>{mode='none';ring=null;shapes.clearLayers();render();};
 $('tiles').onchange=()=>{$('tiles').checked?tiles.addTo(map):map.removeLayer(tiles);};
